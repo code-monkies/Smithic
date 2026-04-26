@@ -139,8 +139,10 @@ Smithic is built around the assumption that multi-agent systems fail constantly 
 ## Roadmap
 
 - **v0.1 — Plumbing-first** (this release). End-to-end pipeline: introspect → spec → implement → PR. Feature description supplied via `--feature` flag. Single run.
-- **v0.2 — Autonomous ideation.** Market research stage (web + Reddit MCP), value-scoring rubric, self-critique with abort threshold, full budget meter.
-- **v0.3 — Swarm.** Parallel runs via worktrees, cross-run research cache, full MCP set (HN + Product Hunt), polished examples.
+- **v0.2 — Autonomous ideation.** Market research stage (web + Reddit MCP), value-scoring rubric, self-critique with abort threshold, full budget meter. → [plan](docs/plans/v0.2-autonomous-ideation.md)
+- **v0.3 — Swarm.** Parallel runs via worktrees, cross-run research cache, full MCP set (HN + Product Hunt), polished examples. → [plan](docs/plans/v0.3-swarm.md)
+
+Detailed release plans live in [`docs/plans/`](docs/plans/) — each is self-contained so a fresh contributor (human or agent) can pick it up cold.
 
 ## Contributing
 

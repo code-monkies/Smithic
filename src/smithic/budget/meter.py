@@ -9,6 +9,13 @@ we keep an out-of-band ledger here for two reasons:
 
 In v0.1 the meter records everything but the only ``check`` callsite is between
 stages — there is no mid-call interrupt. v0.2 will tighten this.
+
+The USD ceiling is treated as a hard limit only when ``enforce_usd`` is set
+(which the orchestrator sets to ``True`` only for direct API auth — see
+``smithic.auth.is_metered``). For subscription / Bedrock / Vertex / Foundry the
+SDK does not aggregate per-call USD, so the figure would always be 0 and
+enforcement would be a no-op or, worse, misleading. The token ceiling is hard
+in every mode.
 """
 
 from __future__ import annotations
@@ -26,10 +33,18 @@ class BudgetCeiling:
 
 
 class Meter:
-    def __init__(self, memory: Memory, run_id: str, ceiling: BudgetCeiling) -> None:
+    def __init__(
+        self,
+        memory: Memory,
+        run_id: str,
+        ceiling: BudgetCeiling,
+        *,
+        enforce_usd: bool = True,
+    ) -> None:
         self.memory = memory
         self.run_id = run_id
         self.ceiling = ceiling
+        self.enforce_usd = enforce_usd
 
     def record(
         self,
@@ -56,13 +71,33 @@ class Meter:
         return self.memory.total_tokens(self.run_id)
 
     def remaining_usd(self) -> float:
+        """Headroom under the USD ceiling. Always non-negative.
+
+        Returns ``inf`` for unmetered modes so callers that pass the value to
+        the SDK as ``max_budget_usd`` don't accidentally cap an unmetered call.
+        """
+        if not self.enforce_usd:
+            return float("inf")
         return max(0.0, self.ceiling.max_usd - self.spent())
 
     def check(self) -> None:
-        """Raise ``BudgetExceeded`` if either ceiling is breached."""
-        spent = self.spent()
+        """Raise ``BudgetExceeded`` if a hard ceiling is breached.
+
+        The token ceiling is always enforced. The USD ceiling is enforced only
+        when ``enforce_usd`` was set at construction time.
+        """
         tokens = self.tokens_used()
-        if spent > self.ceiling.max_usd or tokens > self.ceiling.max_tokens:
+        if tokens > self.ceiling.max_tokens:
             raise BudgetExceeded(
-                spent_usd=spent, ceiling_usd=self.ceiling.max_usd, tokens=tokens
+                spent_usd=self.spent(),
+                ceiling_usd=self.ceiling.max_usd,
+                tokens=tokens,
             )
+        if self.enforce_usd:
+            spent = self.spent()
+            if spent > self.ceiling.max_usd:
+                raise BudgetExceeded(
+                    spent_usd=spent,
+                    ceiling_usd=self.ceiling.max_usd,
+                    tokens=tokens,
+                )

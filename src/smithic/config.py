@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -60,6 +61,28 @@ class BudgetConfig(BaseModel):
     max_tokens_per_run: int = Field(default=2_000_000, gt=0)
 
 
+class AuthConfig(BaseModel):
+    """How the Claude Agent SDK should authenticate.
+
+    `mode` accepts:
+
+    - ``auto`` (default): pick at runtime based on env. Bedrock / Vertex /
+      Foundry env vars beat ``ANTHROPIC_API_KEY`` beats subscription session.
+    - ``api``: require ``ANTHROPIC_API_KEY``; per-token billing.
+    - ``subscription``: use the logged-in ``claude`` CLI session (Pro / Max
+      plan). USD ceiling is treated as advisory in this mode because the SDK
+      reports cost as $0 for subscription calls.
+    - ``bedrock`` / ``vertex`` / ``foundry``: route through the named cloud
+      provider; sets ``CLAUDE_CODE_USE_<PROVIDER>=1`` and disables
+      Anthropic-specific beta headers.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["auto", "api", "subscription", "bedrock", "vertex", "foundry"] = "auto"
+    cli_path: str | None = None
+
+
 class ResearchConfig(BaseModel):
     """Reserved for v0.2+. Parsed but unused in v0.1."""
 
@@ -103,6 +126,7 @@ class SmithicConfig(BaseModel):
     target: TargetConfig
     swarm: SwarmConfig = Field(default_factory=SwarmConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     rubric: RubricConfig = Field(default_factory=RubricConfig)
     pr: PRConfig = Field(default_factory=PRConfig)

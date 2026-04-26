@@ -5,8 +5,9 @@ this call. We:
 
 1. Build a system prompt that tells Claude it's running inside a worktree and
    must implement the feature described in ``.smithic/spec.md``.
-2. Spawn a ``query()`` against the SDK with ``cwd`` set to the worktree.
-3. Bound the run by ``max_budget_usd`` (the SDK's per-call ceiling) and a
+2. Spawn a ``query()`` against the SDK with ``cwd`` set to the worktree and
+   the resolved auth env / CLI path injected.
+3. Bound the run by ``max_budget_usd`` (only meaningful in API mode) and a
    conservative ``max_turns``.
 4. Stream messages, log token/cost events through the Meter, and capture the
    final ``ResultMessage`` for the orchestrator.
@@ -17,6 +18,7 @@ inside the worktree path it was given.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,6 +78,8 @@ async def run_implementation(
     meter: Meter,
     model: str | None = None,
     max_turns: int = 40,
+    auth_env: dict[str, str] | None = None,
+    cli_path: str | None = None,
 ) -> ImplementResult:
     """Spawn the Claude implementation session inside ``worktree_path``."""
     remaining_usd = meter.remaining_usd()
@@ -90,14 +94,24 @@ async def run_implementation(
             num_turns=0,
         )
 
-    options = ClaudeAgentOptions(
+    # `max_budget_usd` is only meaningful in API mode. For unmetered modes the
+    # meter returns inf and we drop the kwarg so the SDK doesn't see a value
+    # it would try to enforce against $0 cost reports.
+    options_kwargs: dict[str, object] = dict(
         cwd=str(worktree_path),
         system_prompt=_SYSTEM_PROMPT,
         max_turns=max_turns,
-        max_budget_usd=remaining_usd,
         permission_mode="acceptEdits",
         model=model,
     )
+    if math.isfinite(remaining_usd):
+        options_kwargs["max_budget_usd"] = remaining_usd
+    if auth_env:
+        options_kwargs["env"] = auth_env
+    if cli_path:
+        options_kwargs["cli_path"] = cli_path
+
+    options = ClaudeAgentOptions(**options_kwargs)
 
     prompt = (
         f"The feature to implement: {feature.strip()}\n\n"

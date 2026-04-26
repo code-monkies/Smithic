@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from smithic import __version__
+from smithic.auth import AuthError
 from smithic.config import load_config
 from smithic.orchestrator import run_once
 from smithic.worktree.manager import WorktreeManager
@@ -69,11 +70,20 @@ def cmd_run(
         int,
         typer.Option("--max-turns", help="Cap turns the implement agent can take.", min=1, max=200),
     ] = 40,
+    auth_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--auth-mode",
+            help="Override [auth].mode from config: auto, api, subscription, bedrock, vertex, foundry.",
+        ),
+    ] = None,
 ) -> None:
     """Run the Smithic pipeline once against a target repo."""
     cfg, config_dir = load_config(config)
     if max_usd is not None:
         cfg.budget.max_usd_per_run = max_usd
+    if auth_mode is not None:
+        cfg.auth = cfg.auth.model_copy(update={"mode": auth_mode})
 
     if feature is None:
         _console.print(
@@ -84,15 +94,19 @@ def cmd_run(
 
     db_path = _resolve_db(config_dir)
 
-    outcome = anyio.run(
-        run_once,
-        cfg,
-        config_dir,
-        feature,
-        db_path,
-        model,
-        max_turns,
-    )
+    try:
+        outcome = anyio.run(
+            run_once,
+            cfg,
+            config_dir,
+            feature,
+            db_path,
+            model,
+            max_turns,
+        )
+    except AuthError as exc:
+        _console.print(f"[bold red]auth error:[/] {exc}")
+        raise typer.Exit(code=2) from exc
 
     table = Table(title=f"Smithic run {outcome.run_id}", show_header=False)
     table.add_row("status", outcome.status)

@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from smithic.auth import env_for_mode, is_metered, preflight
 from smithic.budget.exceptions import AbortRun, BudgetExceeded
 from smithic.budget.meter import BudgetCeiling, Meter
 from smithic.config import SmithicConfig
@@ -60,6 +61,11 @@ async def run_once(
     memory.start_run(run_id, str(target_path), feature)
     event("run.start", run_id=run_id, target=str(target_path), feature=feature)
 
+    auth_mode = preflight(config.auth.mode, cli_path=config.auth.cli_path)
+    metered = is_metered(auth_mode)
+    auth_env = env_for_mode(auth_mode)
+    event("auth.resolved", run_id=run_id, mode=auth_mode, metered=metered)
+
     meter = Meter(
         memory,
         run_id,
@@ -67,6 +73,7 @@ async def run_once(
             max_usd=config.budget.max_usd_per_run,
             max_tokens=config.budget.max_tokens_per_run,
         ),
+        enforce_usd=metered,
     )
 
     wt_manager = WorktreeManager(target_path, config.swarm.worktree_root)
@@ -119,6 +126,8 @@ async def run_once(
             meter=meter,
             model=model,
             max_turns=max_turns,
+            auth_env=auth_env,
+            cli_path=config.auth.cli_path,
         )
         impl_status = "completed" if result.succeeded else "failed"
         memory.finish_stage(run_id, "implement", impl_status, payload=result.summary[:8000])

@@ -14,8 +14,22 @@ parallel_runs = 1
 worktree_root = ".smithic-worktrees"
 
 [budget]
+# In `subscription` / `bedrock` / `vertex` / `foundry` auth modes the SDK does
+# not report per-call USD, so this ceiling becomes advisory in those modes.
+# The token ceiling is enforced regardless.
 max_usd_per_run = 5.00
 max_tokens_per_run = 2_000_000
+
+[auth]
+# How to authenticate against Claude:
+#   - "auto"          (default) pick at runtime based on env
+#   - "api"           require ANTHROPIC_API_KEY
+#   - "subscription"  use the logged-in `claude` CLI session (Pro / Max plan)
+#   - "bedrock"       AWS Bedrock (CLAUDE_CODE_USE_BEDROCK=1)
+#   - "vertex"        Google Vertex AI (CLAUDE_CODE_USE_VERTEX=1)
+#   - "foundry"       Azure AI Foundry (CLAUDE_CODE_USE_FOUNDRY=1)
+mode = "auto"
+# cli_path = "/usr/local/bin/claude"   # optional override
 
 [research]
 # Reserved for v0.2+. Currently parsed but not used.

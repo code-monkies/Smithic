@@ -40,6 +40,30 @@ cd Smithic
 pip install -e .[dev]
 ```
 
+### Claude authentication
+
+Smithic delegates the actual coding work to the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python), which means you have four ways to authenticate — pick whichever you already have:
+
+| Mode | When to pick | Setup |
+|---|---|---|
+| `subscription` | You have a **Claude Pro or Max** plan and want to use it. | Run `claude` once, complete `/login`. Smithic reuses that session. |
+| `api` | You have an **Anthropic API key** and want per-token billing on the Console. | `export ANTHROPIC_API_KEY=sk-ant-...` |
+| `bedrock` | You're routing Claude through **AWS Bedrock**. | AWS credentials set up; Smithic sets `CLAUDE_CODE_USE_BEDROCK=1`. |
+| `vertex` | You're routing through **Google Vertex AI**. | GCP creds; Smithic sets `CLAUDE_CODE_USE_VERTEX=1`. |
+| `foundry` | You're routing through **Azure AI Foundry**. | Azure creds; Smithic sets `CLAUDE_CODE_USE_FOUNDRY=1`. |
+
+Configure in `smithic.toml`:
+
+```toml
+[auth]
+mode = "subscription"   # or "api", "bedrock", "vertex", "foundry", or "auto" (default)
+# cli_path = "/usr/local/bin/claude"   # optional override
+```
+
+Or pass it once at the CLI: `smithic run --auth-mode subscription ...`
+
+**Heads up on subscription mode:** the SDK reports per-call cost as `$0` for subscription usage, so the `max_usd_per_run` budget ceiling becomes advisory — the **token ceiling is still enforced** as the actual hard limit. If `ANTHROPIC_API_KEY` is set in your environment while `mode = "subscription"`, Smithic clears it for SDK calls so subscription billing wins (Claude Code would otherwise prefer the API key).
+
 ## Quick start
 
 1. In your **target repo** (the one you want Smithic to ship features into), create a `smithic.toml`:

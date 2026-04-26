@@ -1,0 +1,33 @@
+# Default value-scoring rubric for the v0.2+ research → score → spec loop.
+#
+# The score stage will ask a Claude subagent to score each candidate feature on
+# every axis below (0.0 – 1.0). Total score = sum(axis_score * weight).
+#
+# Tune for your project: e.g. devtools care more about competitive_gap, content
+# products care more about market_demand, infra cares more about reversibility.
+
+axes:
+  market_demand:
+    weight: 0.25
+    description: Volume / recency of pain signal in research findings.
+  competitive_gap:
+    weight: 0.20
+    description: Absent or weak in named competitors.
+  effort_fit:
+    weight: 0.15
+    description: Implementable inside one Smithic run (heuristic).
+  strategic_alignment:
+    weight: 0.20
+    description: Matches the mission statement and current trajectory.
+  user_pain_intensity:
+    weight: 0.10
+    description: Qualitative strength of pain signals (rage tweets > neutral comments).
+  reversibility:
+    weight: 0.10
+    description: How cleanly the feature can be backed out if it doesn't land.
+
+thresholds:
+  # Below this total, abort the run instead of producing a marginal PR.
+  min_total: 0.55
+  # If any axis scores below this, the candidate is disqualified.
+  min_per_axis: 0.20

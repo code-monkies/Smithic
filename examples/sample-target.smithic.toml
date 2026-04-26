@@ -1,0 +1,36 @@
+# Example smithic.toml. Copy this into your target repo and edit.
+
+[target]
+# Path to the target repo (absolute or relative to this config file).
+path = "."
+# Path to a markdown file describing the project's mission. Smithic reads this
+# to ground its proposals. Use `mission_text = "..."` instead for inline.
+mission = "./MISSION.md"
+
+[swarm]
+# v0.3+ honors > 1.
+parallel_runs = 1
+# Worktrees live under <target.path>/<worktree_root>.
+worktree_root = ".smithic-worktrees"
+
+[budget]
+max_usd_per_run = 5.00
+max_tokens_per_run = 2_000_000
+
+[research]
+# Reserved for v0.2+. Currently parsed but not used.
+sources = ["web", "reddit", "hn", "producthunt"]
+cache_ttl_hours = 72
+
+[rubric]
+# Reserved for v0.2+. Path is relative to this config file.
+# path = ".smithic/rubric.yaml"
+
+[pr]
+# Open the PR as a draft if the v0.2+ critic stage flags concerns.
+draft_on_critique_concerns = true
+# Labels to apply at PR creation. Smithic refuses any name in its reserved
+# set (dev-tracked, auto-deploy, production, release, ship-it, deploy).
+labels = []
+# Default base branch for new PRs.
+base_branch = "main"

@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "smithic"
+version = "0.1.0"
+description = "An autonomous feature-factory swarm: research the market, propose a feature, ship a PR."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+authors = [{ name = "code-monkies" }]
+keywords = ["agent", "swarm", "claude", "automation", "pr", "code-generation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Code Generators",
+]
+dependencies = [
+    "claude-agent-sdk>=0.1.0",
+    "typer>=0.15.0",
+    "pydantic>=2.10.0",
+    "anyio>=4.6.0",
+    "rich>=13.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-anyio>=0.0.0",
+    "ruff>=0.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/code-monkies/Smithic"
+Issues = "https://github.com/code-monkies/Smithic/issues"
+
+[project.scripts]
+smithic = "smithic.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smithic"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501", "N818"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+norecursedirs = ["tests/fixtures"]

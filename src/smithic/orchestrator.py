@@ -31,10 +31,11 @@ from pathlib import Path
 from smithic.auth import env_for_mode, is_metered, preflight
 from smithic.budget.exceptions import AbortRun, BudgetExceeded
 from smithic.budget.meter import BudgetCeiling, Meter
-from smithic.config import SmithicConfig
+from smithic.config import PRGateConfig, SmithicConfig
 from smithic.memory.cache import ResearchCache
 from smithic.memory.db import Memory
 from smithic.rubric.loader import load_rubric
+from smithic.rubric.pr_gate import PRGateOutcome, PRGateThresholds, apply_pr_gate
 from smithic.rubric.schema import Rubric
 from smithic.stages.critique import CritiqueResult, run_critique
 from smithic.stages.implement import ImplementResult, run_implementation
@@ -72,6 +73,73 @@ def _resolve_rubric(config: SmithicConfig, config_dir: Path) -> Rubric:
 
 def _critic_label_for(verdict: str) -> list[str]:
     return [NEEDS_REVIEW_LABEL] if verdict == "pass-with-concerns" else []
+
+
+def _gate_thresholds(cfg: PRGateConfig) -> PRGateThresholds:
+    """Project the pydantic config into the gate's plain-data dataclass."""
+    return PRGateThresholds(
+        enable=cfg.enable,
+        min_spec_adherence=cfg.min_spec_adherence,
+        min_convention_drift=cfg.min_convention_drift,
+        concerns_spec_adherence=cfg.concerns_spec_adherence,
+        concerns_convention_drift=cfg.concerns_convention_drift,
+    )
+
+
+def _apply_pr_gate_to_critique(
+    *,
+    critique_result: CritiqueResult,
+    gate_cfg: PRGateConfig,
+    run_id: str,
+    memory: Memory,
+) -> tuple[CritiqueResult, PRGateOutcome]:
+    """Run the quantitative PR gate on a critic verdict, demoting if needed.
+
+    The orchestrator then acts on the *gated* verdict (which may be stricter
+    than the critic's original). The original literal is preserved in the
+    DB's ``critic_verdict`` column for audit, while the run-level ``notes``
+    field on abort records the gate reason.
+    """
+    thresholds = _gate_thresholds(gate_cfg)
+    outcome = apply_pr_gate(critique_result.verdict, thresholds)
+    if not outcome.triggered:
+        return critique_result, outcome
+
+    # Surface a clear telemetry event so reviewers can spot gate-driven
+    # demotions/aborts without diffing two SQLite columns.
+    event(
+        "pr_gate.triggered",
+        run_id=run_id,
+        original_verdict=outcome.original_verdict,
+        gated_verdict=outcome.verdict,
+        reason=outcome.reason,
+        spec_adherence=critique_result.verdict.spec_adherence,
+        convention_drift=critique_result.verdict.convention_drift,
+    )
+
+    # Mutate the verdict in-place via model_copy so the rest of the
+    # orchestrator (revise feedback, PR body, draft flag) sees the gated
+    # verdict. Append the gate reason to the summary so the PR body /
+    # ``smithic-needs-review`` reviewer has the context.
+    summary = critique_result.verdict.summary or ""
+    extra = f"\n\n_{outcome.reason}._" if outcome.reason else ""
+    new_verdict = critique_result.verdict.model_copy(
+        update={
+            "verdict": outcome.verdict,
+            "summary": (summary + extra).strip(),
+        }
+    )
+    # Record the *gated* verdict on the run row (source of truth for
+    # downstream behavior). The original verdict lives in telemetry.
+    memory.set_critic_verdict(run_id, outcome.verdict)
+    return (
+        CritiqueResult(
+            verdict=new_verdict,
+            cost_usd=critique_result.cost_usd,
+            skipped=critique_result.skipped,
+        ),
+        outcome,
+    )
 
 
 async def _maybe_critique(
@@ -301,6 +369,16 @@ async def run_once(
             )
             if critique_result is None:
                 break  # critic disabled
+            # Quantitative PR gate: a critic ``pass`` with poor adherence /
+            # drift scores (or unaddressed critical issues) gets demoted or
+            # turned into an abort. Without this gate the literal verdict is
+            # the only safety check — and a hallucinated "pass" still ships.
+            critique_result, _gate_outcome = _apply_pr_gate_to_critique(
+                critique_result=critique_result,
+                gate_cfg=config.pr_gate,
+                run_id=run_id,
+                memory=memory,
+            )
             verdict = critique_result.verdict.verdict
             if verdict in {"pass", "pass-with-concerns"}:
                 break

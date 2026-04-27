@@ -122,6 +122,48 @@ class CritiqueConfig(BaseModel):
     model: str | None = None  # falls back to [auth].model / SDK default
 
 
+class PRGateConfig(BaseModel):
+    """Quantitative gate applied to the critic's verdict before opening a PR.
+
+    The critic returns a verdict literal (``pass`` / ``pass-with-concerns`` /
+    ``revise`` / ``abort``) plus float scores for ``spec_adherence`` and
+    ``convention_drift`` in ``[0, 1]``. Without this gate, an LLM that says
+    ``pass`` with score 0.1 still ships a PR — that's the 17M-AI-PR slop
+    pattern Smithic refuses to add to. The gate enforces:
+
+    - **Hard floor** (``min_*``): any axis below this aborts the run.
+    - **Concern band** (``concerns_*``): a ``pass`` with at least one axis
+      below this gets demoted to ``pass-with-concerns`` (draft PR + the
+      ``smithic-needs-review`` label, same as if the critic had said so
+      directly).
+
+    The gate never *promotes* — a critic ``revise`` / ``abort`` always wins.
+    Set ``enable = false`` for v0.2 verdict-literal-only behavior.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enable: bool = True
+    min_spec_adherence: float = Field(default=0.50, ge=0.0, le=1.0)
+    min_convention_drift: float = Field(default=0.40, ge=0.0, le=1.0)
+    concerns_spec_adherence: float = Field(default=0.75, ge=0.0, le=1.0)
+    concerns_convention_drift: float = Field(default=0.60, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _concerns_at_or_above_min(self) -> PRGateConfig:
+        if self.concerns_spec_adherence < self.min_spec_adherence:
+            raise ValueError(
+                "concerns_spec_adherence must be >= min_spec_adherence "
+                f"(got {self.concerns_spec_adherence} < {self.min_spec_adherence})"
+            )
+        if self.concerns_convention_drift < self.min_convention_drift:
+            raise ValueError(
+                "concerns_convention_drift must be >= min_convention_drift "
+                f"(got {self.concerns_convention_drift} < {self.min_convention_drift})"
+            )
+        return self
+
+
 class PRConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -152,6 +194,7 @@ class SmithicConfig(BaseModel):
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     rubric: RubricConfig = Field(default_factory=RubricConfig)
     critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
+    pr_gate: PRGateConfig = Field(default_factory=PRGateConfig)
     pr: PRConfig = Field(default_factory=PRConfig)
 
 

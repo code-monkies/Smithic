@@ -56,6 +56,20 @@ query_budget_usd = 0.10
 enable = true
 max_revise_loops = 1
 
+[pr_gate]
+# Quantitative gate over the critic's verdict. Even if the critic's verdict
+# literal is "pass", the run aborts when spec_adherence/convention_drift fall
+# below `min_*` (or any issue is severity=critical), and demotes to
+# pass-with-concerns (draft + smithic-needs-review) when between `min_*` and
+# `concerns_*`. Defends against hallucinated passes — the load-bearing
+# safeguard for the "no PR is better than a marginal PR" promise. Set
+# `enable = false` to fall back to verdict-literal-only behavior.
+enable = true
+min_spec_adherence = 0.50
+min_convention_drift = 0.40
+concerns_spec_adherence = 0.75
+concerns_convention_drift = 0.60
+
 [pr]
 # Smithic's PR template includes the research rationale + critic verdict;
 # pass-with-concerns opens the PR as a draft with the smithic-needs-review

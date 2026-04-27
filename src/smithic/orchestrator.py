@@ -120,7 +120,7 @@ async def run_once(
     feature_seed: str | None,
     db_path: Path,
     model: str | None = None,
-    max_turns: int = 40,
+    max_turns: int = 150,
     research_only: bool = False,
     parent_run_id: str | None = None,
     cache: ResearchCache | None = None,

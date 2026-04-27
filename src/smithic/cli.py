@@ -107,7 +107,7 @@ def cmd_run(
     max_turns: Annotated[
         int,
         typer.Option("--max-turns", help="Cap turns the implement agent can take.", min=1, max=200),
-    ] = 40,
+    ] = 150,
     auth_mode: Annotated[
         str | None,
         typer.Option(

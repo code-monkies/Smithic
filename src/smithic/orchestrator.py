@@ -467,6 +467,16 @@ async def run_once(
         )
         event("run.end", run_id=run_id, status="error", error=repr(exc))
         raise
+    finally:
+        # Belt-and-suspenders: catch ``KeyboardInterrupt`` / ``BaseException``
+        # / process-killed paths that bypass the ``except Exception`` arm and
+        # would otherwise leave the row stuck in ``running`` forever. The
+        # idempotent UPDATE only fires when the run is still ``running`` —
+        # the normal terminal arms above already finalized.
+        if memory.finalize_if_running(
+            run_id, "interrupted", notes="run terminated without reaching a terminal stage"
+        ):
+            event("run.end", run_id=run_id, status="interrupted")
 
 
 async def _resolve_feature(
@@ -546,6 +556,7 @@ async def _resolve_feature(
         cli_path=cli_path,
         model=model,
         previously_selected=previously_selected,
+        out_dir=out_dir,
     )
     write_score_artifact(score_result.scoring, out_dir)
     if score_result.scoring.selected is None:

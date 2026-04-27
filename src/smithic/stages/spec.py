@@ -55,9 +55,20 @@ def write_spec(
 
 {mission.strip()}
 
+## Worktree
+
+The implementation agent runs with `cwd` set to the worktree below.
+**All file edits MUST stay inside this directory** — Smithic isolates each
+run in a worktree so multiple parallel runs don't trample each other and so
+a failed run never leaks changes back into the parent repo. Use relative
+paths (or paths starting with the worktree path); never absolute paths to
+the parent repo.
+
+- **Worktree path**: `{worktree_path}`
+
 ## Repo briefing
 
-{introspection.as_briefing()}
+{introspection.as_briefing(display_path=worktree_path)}
 
 ## Acceptance criteria
 

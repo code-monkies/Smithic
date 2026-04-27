@@ -31,3 +31,17 @@ def test_briefing_renders_without_error() -> None:
     briefing = report.as_briefing()
     assert "Repo introspection briefing" in briefing
     assert str(FIXTURE.resolve()) in briefing
+
+
+def test_briefing_display_path_overrides_repo_path() -> None:
+    """The briefing must show the *worktree* path when one is supplied.
+
+    Without this, the implement agent reads the absolute target-repo path
+    out of spec.md and uses it for Edit/Write — silently bypassing the
+    worktree sandbox. See PR #2's worktree-escape fix.
+    """
+    report = introspect(FIXTURE)
+    worktree = Path("/tmp/smithic-worktrees/run-abcd")
+    briefing = report.as_briefing(display_path=worktree)
+    assert str(worktree) in briefing
+    assert str(FIXTURE.resolve()) not in briefing

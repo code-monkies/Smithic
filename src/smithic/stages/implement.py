@@ -80,8 +80,14 @@ async def run_implementation(
     max_turns: int = 40,
     auth_env: dict[str, str] | None = None,
     cli_path: str | None = None,
+    revise_feedback: str | None = None,
 ) -> ImplementResult:
-    """Spawn the Claude implementation session inside ``worktree_path``."""
+    """Spawn the Claude implementation session inside ``worktree_path``.
+
+    On a critic-driven revise loop, ``revise_feedback`` is the critic's summary
+    + issues; we prepend it to the user prompt so the agent picks up where it
+    left off rather than restarting.
+    """
     remaining_usd = meter.remaining_usd()
     if remaining_usd <= 0:
         return ImplementResult(
@@ -97,12 +103,25 @@ async def run_implementation(
     # `max_budget_usd` is only meaningful in API mode. For unmetered modes the
     # meter returns inf and we drop the kwarg so the SDK doesn't see a value
     # it would try to enforce against $0 cost reports.
+    # Capture CLI stderr so a subprocess crash doesn't surface as "Check stderr
+    # output for details" with no actual stderr in sight. The SDK's default
+    # ``stderr`` is None — without this, a CLI exit-1 leaves us blind.
+    stderr_buf: list[str] = []
+
+    def _capture_stderr(line: str) -> None:
+        stderr_buf.append(line)
+
     options_kwargs: dict[str, object] = dict(
         cwd=str(worktree_path),
         system_prompt=_SYSTEM_PROMPT,
         max_turns=max_turns,
-        permission_mode="acceptEdits",
+        # Implement is sandboxed inside the worktree (cwd above). It needs
+        # Read/Write/Edit/Bash to actually do the work. acceptEdits gates
+        # everything except file edits, which broke real runs against MCP-using
+        # stages — see research.py for the full rationale.
+        permission_mode="bypassPermissions",
         model=model,
+        stderr=_capture_stderr,
     )
     if math.isfinite(remaining_usd):
         options_kwargs["max_budget_usd"] = remaining_usd
@@ -113,10 +132,20 @@ async def run_implementation(
 
     options = ClaudeAgentOptions(**options_kwargs)
 
-    prompt = (
-        f"The feature to implement: {feature.strip()}\n\n"
-        "Begin by reading `.smithic/spec.md` and surveying the repo structure."
-    )
+    prompt_parts: list[str] = []
+    if revise_feedback:
+        prompt_parts.append(revise_feedback.strip())
+        prompt_parts.append(
+            "Address the issues above on top of the existing diff in this worktree. "
+            "Do not redo work that already passes — focus on the points the critic raised. "
+            "Commit the updated changes when done."
+        )
+    else:
+        prompt_parts.append(f"The feature to implement: {feature.strip()}")
+        prompt_parts.append(
+            "Begin by reading `.smithic/spec.md` and surveying the repo structure."
+        )
+    prompt = "\n\n".join(prompt_parts)
 
     summary_chunks: list[str] = []
     cost_usd = 0.0
@@ -125,19 +154,39 @@ async def run_implementation(
     session_id: str | None = None
     num_turns = 0
 
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            num_turns += 1
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    summary_chunks.append(block.text)
-        elif isinstance(message, ResultMessage):
-            cost_usd = float(getattr(message, "total_cost_usd", 0.0) or 0.0)
-            session_id = getattr(message, "session_id", None)
-            usage = getattr(message, "usage", None)
-            if usage is not None:
-                input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-                output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+    try:
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                num_turns += 1
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        summary_chunks.append(block.text)
+            elif isinstance(message, ResultMessage):
+                cost_usd = float(getattr(message, "total_cost_usd", 0.0) or 0.0)
+                session_id = getattr(message, "session_id", None)
+                usage = getattr(message, "usage", None)
+                if usage is not None:
+                    input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+                    output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+    except Exception as exc:
+        # Dump captured stderr to disk so the next invocation has something to
+        # read besides "Check stderr output for details". Best-effort.
+        debug_path = worktree_path / ".smithic" / "implement-stderr.txt"
+        try:
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(
+                "\n".join(stderr_buf) or "(no stderr captured)", encoding="utf-8"
+            )
+        except OSError:
+            pass
+        # Re-raise with the captured stderr appended so the orchestrator's
+        # error path surfaces something actionable.
+        tail = "\n".join(stderr_buf[-40:]) if stderr_buf else "(no stderr captured)"
+        raise RuntimeError(
+            f"implement stage CLI subprocess failed: {exc}\n"
+            f"--- captured stderr (last 40 lines) ---\n{tail}\n"
+            f"--- full stderr in {debug_path} ---"
+        ) from exc
 
     meter.record(
         "implement",

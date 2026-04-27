@@ -133,10 +133,45 @@ def introspect(repo_path: Path) -> IntrospectionReport:
                 content = ""
             report.suggested_test_command = _detect_test_command(lang, content)
 
-    head_file = repo_path / ".git" / "HEAD"
-    if head_file.is_file():
-        head = head_file.read_text(encoding="utf-8", errors="replace").strip()
-        if head.startswith("ref: refs/heads/"):
-            report.git_default_branch = head.removeprefix("ref: refs/heads/")
+    report.git_default_branch = _detect_default_branch(repo_path)
 
     return report
+
+
+def _detect_default_branch(repo_path: Path) -> str | None:
+    """Resolve the *remote's* default branch, not whatever's currently checked out.
+
+    Reading ``.git/HEAD`` returns the working-tree head — fine when the user
+    sits on ``main``, wrong as soon as they're on a feature branch (Smithic
+    would then try to fetch + worktree-add off ``feat/foo`` and the run would
+    crash on ``couldn't find remote ref feat/foo``).
+
+    Preferred source: ``.git/refs/remotes/origin/HEAD`` which is a symbolic
+    ref pointing to the remote's actual default branch. Falls back to packed
+    refs, then to ``.git/HEAD`` only when the remote default isn't tracked
+    locally (e.g. fresh clones with ``--single-branch``).
+    """
+    git_dir = repo_path / ".git"
+    if not git_dir.exists():
+        return None
+
+    remote_head = git_dir / "refs" / "remotes" / "origin" / "HEAD"
+    if remote_head.is_file():
+        text = remote_head.read_text(encoding="utf-8", errors="replace").strip()
+        if text.startswith("ref: refs/remotes/origin/"):
+            return text.removeprefix("ref: refs/remotes/origin/")
+
+    packed = git_dir / "packed-refs"
+    if packed.is_file():
+        for line in packed.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line.startswith("# ref: refs/remotes/origin/"):
+                return line.removeprefix("# ref: refs/remotes/origin/")
+
+    head_file = git_dir / "HEAD"
+    if head_file.is_file():
+        text = head_file.read_text(encoding="utf-8", errors="replace").strip()
+        if text.startswith("ref: refs/heads/"):
+            return text.removeprefix("ref: refs/heads/")
+
+    return None

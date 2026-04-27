@@ -1,11 +1,12 @@
 """Spec generation — turns a feature description and introspection report into a markdown spec.
 
-In v0.1 the spec stage is intentionally light: it composes a structured spec
-document from the inputs and writes it to ``.smithic/spec.md`` inside the
-worktree. The implementation stage will read it.
+The spec stage composes a structured spec document from the inputs and writes
+it to ``.smithic/spec.md`` inside the worktree. The implementation stage will
+read it.
 
-In v0.2+ this stage will also accept a value-scoring rationale from the
-research+score stages.
+In v0.2 this stage optionally embeds the research/scoring rationale block when
+the run was driven by the autonomous-ideation loop (i.e., ``--feature`` was
+not supplied). When ``--feature`` is supplied, no rationale is shown.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ def write_spec(
     mission: str,
     introspection: IntrospectionReport,
     run_id: str,
+    rationale: str | None = None,
 ) -> Path:
     """Write ``.smithic/spec.md`` inside the worktree and return its path."""
     smithic_dir = worktree_path / ".smithic"
@@ -30,6 +32,16 @@ def write_spec(
     spec_path = smithic_dir / "spec.md"
 
     timestamp = datetime.now(UTC).isoformat()
+
+    rationale_block = ""
+    if rationale and rationale.strip():
+        rationale_block = (
+            "\n## Why this feature\n\n"
+            "Selected by Smithic's autonomous-ideation loop based on the research\n"
+            "brief at `.smithic/research.md`. Rationale:\n\n"
+            f"{rationale.strip()}\n"
+        )
+
     body = f"""# Smithic feature spec
 
 - **Run ID**: `{run_id}`
@@ -38,7 +50,7 @@ def write_spec(
 ## Feature
 
 {feature.strip()}
-
+{rationale_block}
 ## Mission context
 
 {mission.strip()}

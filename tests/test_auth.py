@@ -28,12 +28,19 @@ class TestDetectMode:
 
 
 class TestEnvForMode:
-    def test_api_injects_nothing(self) -> None:
-        assert env_for_mode("api") == {}
+    def test_api_injects_only_utf8(self) -> None:
+        # API mode doesn't need auth env injection (SDK reads ANTHROPIC_API_KEY
+        # itself), but PYTHONIOENCODING / PYTHONUTF8 ride along on every mode
+        # to keep Windows subprocesses from defaulting to cp1252.
+        env = env_for_mode("api")
+        assert env == {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
 
-    def test_subscription_clears_api_key(self) -> None:
+    def test_subscription_clears_api_key_and_forces_utf8(self) -> None:
         # Critical: ANTHROPIC_API_KEY would otherwise override subscription auth.
-        assert env_for_mode("subscription") == {"ANTHROPIC_API_KEY": ""}
+        env = env_for_mode("subscription")
+        assert env["ANTHROPIC_API_KEY"] == ""
+        assert env["PYTHONIOENCODING"] == "utf-8"
+        assert env["PYTHONUTF8"] == "1"
 
     def test_bedrock_disables_betas(self) -> None:
         env = env_for_mode("bedrock")

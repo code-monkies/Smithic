@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "smithic"
-version = "0.1.0"
+version = "0.3.0"
 description = "An autonomous feature-factory swarm: research the market, propose a feature, ship a PR."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -26,6 +26,9 @@ dependencies = [
     "pydantic>=2.10.0",
     "anyio>=4.6.0",
     "rich>=13.9.0",
+    "pyyaml>=6.0",
+    "httpx>=0.27.0",
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]

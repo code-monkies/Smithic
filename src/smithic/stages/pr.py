@@ -6,6 +6,7 @@ implementation summary in the body. Refuses to apply any reserved labels.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -57,6 +58,71 @@ def _sanitize_labels(labels: list[str]) -> list[str]:
 # set up GitHub workflows that watch for this label without it being able to
 # trigger a deploy.
 NEEDS_REVIEW_LABEL = "smithic-needs-review"
+_NEEDS_REVIEW_LABEL_DESCRIPTION = (
+    "Smithic-generated PR flagged by the critic for human review"
+)
+_NEEDS_REVIEW_LABEL_COLOR = "FFA500"  # orange — easy to spot in the PR list
+
+
+def _label_exists(label: str, *, cwd: Path) -> bool | None:
+    """Return True/False if we can determine label existence, else None.
+
+    ``None`` signals "couldn't query" (gh permission issue, network blip,
+    unparseable output) — caller treats it as a soft fail and skips the
+    create-attempt rather than blowing up the whole PR step on a label-list
+    glitch. The subsequent ``gh pr create`` will surface the real error if
+    the label is genuinely missing.
+    """
+    result = subprocess.run(
+        ["gh", "label", "list", "--json", "name", "--limit", "200"],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=False,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        labels = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+    return any(item.get("name") == label for item in labels if isinstance(item, dict))
+
+
+def _ensure_smithic_label_exists(label: str, *, cwd: Path) -> None:
+    """Idempotently create the Smithic-managed PR-review label if missing.
+
+    Smithic appends ``NEEDS_REVIEW_LABEL`` automatically when the critic
+    returns ``pass-with-concerns``. On a fresh repo (or one that hasn't run
+    Smithic before — like the very first dogfood run against this repo did),
+    that label doesn't exist on GitHub, and ``gh pr create --label <name>``
+    fails the entire step with ``could not add label: '<name>' not found``.
+
+    Only Smithic-introduced labels are auto-created here. User-defined
+    labels in ``pr_config.labels`` are NOT — a missing one there is a
+    misconfiguration the user should fix, not silently paper over.
+    """
+    if _label_exists(label, cwd=cwd) is True:
+        return
+    # Best-effort create. If we can't (permissions, race with another
+    # creator), the subsequent ``gh pr create`` will surface the real error.
+    subprocess.run(
+        [
+            "gh", "label", "create", label,
+            "--description", _NEEDS_REVIEW_LABEL_DESCRIPTION,
+            "--color", _NEEDS_REVIEW_LABEL_COLOR,
+        ],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        shell=False,
+        check=False,
+    )
 
 
 def open_pr(
@@ -102,6 +168,8 @@ def open_pr(
     for label in _sanitize_labels([*pr_config.labels, *(extra_labels or [])]):
         if label not in label_set:
             label_set.append(label)
+    if NEEDS_REVIEW_LABEL in label_set:
+        _ensure_smithic_label_exists(NEEDS_REVIEW_LABEL, cwd=worktree.path)
     for label in label_set:
         cmd.extend(["--label", label])
 

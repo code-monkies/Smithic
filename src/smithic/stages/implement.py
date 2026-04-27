@@ -91,7 +91,7 @@ async def run_implementation(
     feature: str,
     meter: Meter,
     model: str | None = None,
-    max_turns: int = 40,
+    max_turns: int = 150,
     auth_env: dict[str, str] | None = None,
     cli_path: str | None = None,
     revise_feedback: str | None = None,
@@ -227,11 +227,30 @@ async def run_implementation(
         # Re-raise with the captured stderr appended so the orchestrator's
         # error path surfaces something actionable.
         tail = "\n".join(stderr_buf[-40:]) if stderr_buf else "(no stderr captured)"
+        # When stderr is empty AND we made meaningful progress, the most
+        # likely cause is the CLI hitting its own ``max_turns_reached``
+        # ceiling — it exits with code 1 and no stderr in that case
+        # (verified against three live runs). Without this hint, the
+        # generic "exit code 1" reads like a fatal crash. Tells the user
+        # exactly how to verify and where to look for ground truth.
+        hint = ""
+        if not stderr_buf and num_turns >= 30:
+            hint = (
+                "\n--- diagnostic hint ---\n"
+                f"The subprocess exited with no stderr after {num_turns} agent turns. "
+                "This is the signature of the Claude Code CLI hitting its "
+                "max_turns_reached ceiling, not a fatal crash. Check "
+                "~/.claude/projects/<project-key>/<session-id>.jsonl for the "
+                "literal `max_turns_reached` attachment record. To raise the "
+                "ceiling: pass `--max-turns 200` (the SDK's hard cap) or set "
+                "it lower in CI."
+            )
         raise RuntimeError(
             f"implement stage CLI subprocess failed: {exc}\n"
             f"--- captured stderr (last 40 lines) ---\n{tail}\n"
             f"--- full stderr in {debug_path} ---\n"
             f"--- per-turn agent narrative in {progress_path} ---"
+            f"{hint}"
         ) from exc
     finally:
         if progress_fp is not None:

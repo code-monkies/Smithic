@@ -154,6 +154,38 @@ def _try_parse_with_structured(call: _ScoreCallResult) -> tuple[ScoringResult | 
     return _try_parse(call.text)
 
 
+def _dump_score_debug(
+    out_dir: Path | None,
+    first: _ScoreCallResult,
+    second: _ScoreCallResult,
+    err1: str,
+    err2: str,
+) -> None:
+    """Write both scoring attempts' raw output to disk on double-failure.
+
+    Best-effort. Same artifact pattern as research's synth-debug and
+    critique's critique-debug — the next iteration shouldn't have to pay
+    another live run just to learn what shape the model returned.
+    """
+    if out_dir is None:
+        return
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        body = (
+            "=== attempt 1 ===\n"
+            f"validation error: {err1}\n\n"
+            f"structured_output:\n{first.structured_output!r}\n\n"
+            f"text:\n{first.text or '(empty)'}\n\n"
+            "=== attempt 2 (with retry prompt) ===\n"
+            f"validation error: {err2}\n\n"
+            f"structured_output:\n{second.structured_output!r}\n\n"
+            f"text:\n{second.text or '(empty)'}\n"
+        )
+        (out_dir / "score-debug.txt").write_text(body, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _build_options(
     *,
     meter: Meter,
@@ -302,12 +334,16 @@ async def run_score(
     cli_path: str | None = None,
     model: str | None = None,
     previously_selected: list[str] | None = None,
+    out_dir: Path | None = None,
 ) -> ScoreResult:
     """Score the candidates and pick a winner. Raises ``AbortRun`` on parse failure.
 
     ``previously_selected`` is a list of titles already chosen by sibling runs
     in the same swarm. When non-empty, the scoring prompt soft-nudges the
     model away from those picks. Disqualification thresholds still apply.
+
+    ``out_dir`` is where ``score-debug.txt`` is written when both attempts
+    fail to parse — same artifact pattern as research and critique.
     """
     options = _build_options(meter=meter, auth_env=auth_env, cli_path=cli_path, model=model)
     prompt = _build_prompt(
@@ -341,7 +377,11 @@ async def run_score(
                 output_tokens=out_tokens,
                 session_id=second.session_id,
             )
-            raise AbortRun(f"score stage failed to produce valid JSON twice: {err2}")
+            _dump_score_debug(out_dir, first, second, err, err2)
+            raise AbortRun(
+                f"score stage failed to produce valid JSON twice: {err2} "
+                "— see score-debug.txt for raw model output"
+            )
 
     meter.record(
         "score",

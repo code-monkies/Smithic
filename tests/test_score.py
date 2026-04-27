@@ -191,3 +191,36 @@ def test_feature_from_selection_returns_seed_and_rationale() -> None:
     assert seed == "Add /healthz"
     assert "Per-axis breakdown" in rationale
     assert "market_demand" in rationale
+
+
+def test_scored_candidate_normalizes_candidate_title_variant() -> None:
+    """The synth model sometimes emits ``candidate_title: str`` instead of a
+    nested ``candidate`` object. Schema must lift it into ``{"title": ...}``.
+    """
+    item = ScoredCandidate.model_validate(
+        {
+            "candidate_title": "Add /healthz",
+            "axes": [{"axis": "market_demand", "score": 0.8, "rationale": "ok"}],
+        }
+    )
+    assert item.candidate.title == "Add /healthz"
+
+
+def test_scored_candidate_normalizes_bare_string_candidate() -> None:
+    """``candidate`` arriving as a bare string (not a dict) — wrap as title."""
+    item = ScoredCandidate.model_validate(
+        {
+            "candidate": "Add /healthz",
+            "axes": [{"axis": "market_demand", "score": 0.8}],
+        }
+    )
+    assert item.candidate.title == "Add /healthz"
+
+
+def test_scored_candidate_normalizes_synonym_keys() -> None:
+    """``feature_title`` / ``feature`` / ``name`` are all natural model synonyms."""
+    for key in ("feature_title", "feature", "name"):
+        item = ScoredCandidate.model_validate(
+            {key: "Add /healthz", "axes": [{"axis": "market_demand", "score": 0.8}]}
+        )
+        assert item.candidate.title == "Add /healthz", f"failed for key {key!r}"

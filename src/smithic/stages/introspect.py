@@ -68,10 +68,20 @@ class IntrospectionReport(BaseModel):
     suggested_test_command: str | None = None
     git_default_branch: str | None = None
 
-    def as_briefing(self) -> str:
-        """Format the report as a markdown briefing the impl agent can read."""
+    def as_briefing(self, *, display_path: Path | None = None) -> str:
+        """Format the report as a markdown briefing the impl agent can read.
+
+        ``display_path`` overrides the path string shown in the briefing.
+        Spec/implement uses this to display the *worktree* path (where the
+        agent must write) rather than the absolute target-repo path. Without
+        the override, real subscription-mode runs surfaced an isolation bug
+        where the implement agent took the briefing's absolute target path
+        as authoritative and wrote files back into the parent repo,
+        bypassing the worktree sandbox entirely.
+        """
         lines: list[str] = ["# Repo introspection briefing", ""]
-        lines.append(f"- **Path**: `{self.repo_path}`")
+        shown_path = display_path if display_path is not None else self.repo_path
+        lines.append(f"- **Path**: `{shown_path}`")
         if self.git_default_branch:
             lines.append(f"- **Default branch**: `{self.git_default_branch}`")
         if self.languages_detected:

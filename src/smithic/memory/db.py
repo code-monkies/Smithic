@@ -204,6 +204,29 @@ class Memory:
                 (_utcnow(), status, branch, pr_url, notes, run_id),
             )
 
+    def finalize_if_running(
+        self,
+        run_id: str,
+        status: str,
+        *,
+        notes: str | None = None,
+    ) -> bool:
+        """Atomically transition the run to ``status`` only if still ``running``.
+
+        Belt-and-suspenders against the ``running``-row leak: process killed,
+        ``KeyboardInterrupt``, ``BaseException`` paths that bypass
+        ``run_once``'s ``except Exception``. Called from a ``finally`` block;
+        no-op when the run already reached a terminal status. Returns True
+        if this call performed the transition.
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE runs SET finished_at = ?, status = ?, notes = ? "
+                "WHERE id = ? AND status = 'running'",
+                (_utcnow(), status, notes, run_id),
+            )
+            return cur.rowcount > 0
+
     def set_research_brief_path(self, run_id: str, path: str) -> None:
         with self._connect() as conn:
             conn.execute(

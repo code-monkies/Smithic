@@ -48,3 +48,31 @@ def test_remaining_usd_never_negative(tmp_path: Path) -> None:
     meter = Meter(memory, "rid", BudgetCeiling(max_usd=1.00, max_tokens=1_000_000))
     meter.record("implement", 5.00)
     assert meter.remaining_usd() == 0.0
+
+
+def _run_status(memory: Memory, run_id: str) -> str | None:
+    with memory._connect() as conn:
+        row = conn.execute("SELECT status FROM runs WHERE id = ?", (run_id,)).fetchone()
+        return row[0] if row else None
+
+
+def test_finalize_if_running_transitions_running_row(tmp_path: Path) -> None:
+    memory = _memory(tmp_path)
+    memory.start_run("rid", "/repo", "feat")
+    assert _run_status(memory, "rid") == "running"
+
+    transitioned = memory.finalize_if_running("rid", "interrupted", notes="Ctrl+C")
+    assert transitioned is True
+    assert _run_status(memory, "rid") == "interrupted"
+
+
+def test_finalize_if_running_is_noop_after_terminal(tmp_path: Path) -> None:
+    memory = _memory(tmp_path)
+    memory.start_run("rid", "/repo", "feat")
+    memory.finish_run("rid", "completed", branch="b")
+    assert _run_status(memory, "rid") == "completed"
+
+    transitioned = memory.finalize_if_running("rid", "interrupted")
+    assert transitioned is False
+    # The completed status must not have been overwritten.
+    assert _run_status(memory, "rid") == "completed"

@@ -18,6 +18,7 @@ inside the worktree path it was given.
 
 from __future__ import annotations
 
+import contextlib
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,9 +33,18 @@ from claude_agent_sdk import (
 
 from smithic.budget.meter import Meter
 
-_SYSTEM_PROMPT = """You are an implementation agent operating inside an isolated git worktree.
+_SYSTEM_PROMPT_TEMPLATE = """You are an implementation agent operating inside an isolated git worktree.
 
-A spec for the feature you are implementing is at `.smithic/spec.md` — read it first.
+**Worktree (your sandbox)**: `{worktree_path}`
+
+This is your `cwd`. Every Read/Edit/Write/Bash tool call you make must stay
+inside this directory. Use relative paths or paths that start with the
+worktree path above. **Never use an absolute path to a parent repository,
+even if a spec, briefing, or CLAUDE.md mentions one** — those references
+exist for context, not for editing.
+
+A spec for the feature you are implementing is at `.smithic/spec.md` (relative
+to the worktree) — read it first.
 
 Your job:
 
@@ -51,13 +61,17 @@ Your job:
 
 You MUST commit your changes via `git commit` before you finish. Use a single
 clear commit message in conventional-commits style (`feat: ...`, `fix: ...`,
-etc.).
+etc.). Run `git` from inside the worktree only.
 
 Do NOT push the branch. Do NOT open a PR. Do NOT touch anything outside this
 worktree directory. Smithic's orchestrator handles those steps after you exit.
 
 When you are done, output a brief summary of what you changed and any caveats
 the human reviewer should know about."""
+
+
+def _build_system_prompt(worktree_path: Path) -> str:
+    return _SYSTEM_PROMPT_TEMPLATE.format(worktree_path=worktree_path)
 
 
 @dataclass
@@ -113,7 +127,7 @@ async def run_implementation(
 
     options_kwargs: dict[str, object] = dict(
         cwd=str(worktree_path),
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=_build_system_prompt(worktree_path),
         max_turns=max_turns,
         # Implement is sandboxed inside the worktree (cwd above). It needs
         # Read/Write/Edit/Bash to actually do the work. acceptEdits gates
@@ -154,13 +168,38 @@ async def run_implementation(
     session_id: str | None = None
     num_turns = 0
 
+    # Stream-log every assistant turn to disk *as it arrives*. When the SDK
+    # CLI subprocess dies mid-iteration (silent exit-1 — see the run-1e59a7
+    # incident in PR #2's description), in-memory ``summary_chunks`` go with
+    # it. Persisting per-turn means the next debugger has the agent's actual
+    # narrative even when stderr is empty.
+    progress_path = worktree_path / ".smithic" / "implement-progress.txt"
+    progress_fp = None
+    try:
+        progress_path.parent.mkdir(parents=True, exist_ok=True)
+        progress_fp = progress_path.open("w", encoding="utf-8")
+        progress_fp.write(f"=== implement stage @ {worktree_path} ===\n\n")
+        progress_fp.flush()
+    except OSError:
+        progress_fp = None
+
     try:
         async for message in query(prompt=prompt, options=options):
             if isinstance(message, AssistantMessage):
                 num_turns += 1
+                turn_text_parts: list[str] = []
                 for block in message.content:
                     if isinstance(block, TextBlock):
                         summary_chunks.append(block.text)
+                        turn_text_parts.append(block.text)
+                if progress_fp is not None and turn_text_parts:
+                    try:
+                        progress_fp.write(f"--- turn {num_turns} ---\n")
+                        progress_fp.write("\n".join(turn_text_parts))
+                        progress_fp.write("\n\n")
+                        progress_fp.flush()
+                    except OSError:
+                        pass
             elif isinstance(message, ResultMessage):
                 cost_usd = float(getattr(message, "total_cost_usd", 0.0) or 0.0)
                 session_id = getattr(message, "session_id", None)
@@ -179,14 +218,25 @@ async def run_implementation(
             )
         except OSError:
             pass
+        if progress_fp is not None:
+            try:
+                progress_fp.write(f"--- crash after turn {num_turns} ---\n{exc!r}\n")
+                progress_fp.flush()
+            except OSError:
+                pass
         # Re-raise with the captured stderr appended so the orchestrator's
         # error path surfaces something actionable.
         tail = "\n".join(stderr_buf[-40:]) if stderr_buf else "(no stderr captured)"
         raise RuntimeError(
             f"implement stage CLI subprocess failed: {exc}\n"
             f"--- captured stderr (last 40 lines) ---\n{tail}\n"
-            f"--- full stderr in {debug_path} ---"
+            f"--- full stderr in {debug_path} ---\n"
+            f"--- per-turn agent narrative in {progress_path} ---"
         ) from exc
+    finally:
+        if progress_fp is not None:
+            with contextlib.suppress(OSError):
+                progress_fp.close()
 
     meter.record(
         "implement",

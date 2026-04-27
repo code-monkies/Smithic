@@ -8,7 +8,8 @@ path = "."
 mission = "./MISSION.md"
 
 [swarm]
-# v0.3+ honors > 1.
+# Default `--runs` value when the CLI flag is omitted. Capped at 20 to keep
+# Reddit/HN rate limits manageable. Override per-invocation with `--runs N`.
 parallel_runs = 1
 # Worktrees live under <target.path>/<worktree_root>.
 worktree_root = ".smithic-worktrees"
@@ -32,19 +33,43 @@ mode = "auto"
 # cli_path = "/usr/local/bin/claude"   # optional override
 
 [research]
-# Reserved for v0.2+. Currently parsed but not used.
-sources = ["web", "reddit", "hn", "producthunt"]
+# Where to look for market signal when --feature is omitted.
+#   - "web"          Tavily MCP (if TAVILY_API_KEY set) or mcp-server-fetch fallback.
+#   - "reddit"       bundled MCP wrapping Reddit's public JSON API.
+#   - "hn"           bundled MCP wrapping the Hacker News Algolia search API.
+#   - "producthunt"  bundled MCP wrapping Product Hunt GraphQL — needs
+#                    PRODUCTHUNT_TOKEN set; otherwise skipped silently.
+sources = ["web", "reddit", "hn"]
+# Hours a synthesized ResearchFindings stays valid in the shared swarm cache.
 cache_ttl_hours = 72
+# How many feature candidates the research stage targets per run.
+max_candidates = 5
+# Soft cap on the query-generation Claude call (in API-mode billing).
+query_budget_usd = 0.10
 
 [rubric]
-# Reserved for v0.2+. Path is relative to this config file.
+# Optional override for the bundled value-scoring rubric. The override merges
+# axis-by-axis on top of src/smithic/rubric/default.yaml — set an axis weight
+# to 0 to drop a default axis. Path is relative to this config file.
 # path = ".smithic/rubric.yaml"
 
+[critique]
+# v0.2 self-critique stage. Spawns a fresh Claude session that has not seen
+# the implement context, scores the diff against the spec, and either passes,
+# revises, or aborts the run before the PR opens.
+enable = true
+# Maximum revise loops the critic can trigger before aborting. Spiral
+# protection — bounded to prevent unbounded retry.
+max_revise_loops = 1
+# model = "claude-sonnet-4-6"   # optional override; falls back to [auth] model.
+
 [pr]
-# Open the PR as a draft if the v0.2+ critic stage flags concerns.
+# Open the PR as a draft when the critic returns "pass-with-concerns".
 draft_on_critique_concerns = true
 # Labels to apply at PR creation. Smithic refuses any name in its reserved
-# set (dev-tracked, auto-deploy, production, release, ship-it, deploy).
+# set (dev-tracked, auto-deploy, production, release, ship-it, deploy). When
+# the critic returns "pass-with-concerns", Smithic also adds
+# `smithic-needs-review` automatically.
 labels = []
 # Default base branch for new PRs.
 base_branch = "main"

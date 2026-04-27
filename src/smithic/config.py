@@ -84,20 +84,42 @@ class AuthConfig(BaseModel):
 
 
 class ResearchConfig(BaseModel):
-    """Reserved for v0.2+. Parsed but unused in v0.1."""
+    """Where Smithic looks for market signal in the research stage.
+
+    ``sources`` accepts ``"web"``, ``"reddit"``, ``"hn"``, ``"producthunt"``.
+    ``hn`` and ``producthunt`` are reserved for v0.3 — listing them in v0.2 is
+    not an error, the unrecognized entries are silently skipped at registry-
+    build time.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    sources: list[str] = Field(default_factory=lambda: ["web"])
+    sources: list[str] = Field(default_factory=lambda: ["web", "reddit"])
     cache_ttl_hours: int = Field(default=72, gt=0)
+    max_candidates: int = Field(default=5, ge=1, le=8)
+    query_budget_usd: float = Field(default=0.10, gt=0)
 
 
 class RubricConfig(BaseModel):
-    """Reserved for v0.2+. Parsed but unused in v0.1."""
+    """Optional override path for the value-scoring rubric.
+
+    If unset, Smithic uses the bundled default at
+    ``src/smithic/rubric/default.yaml``.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     path: Path | None = None
+
+
+class CritiqueConfig(BaseModel):
+    """How the critic stage behaves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enable: bool = True
+    max_revise_loops: int = Field(default=1, ge=0, le=3)
+    model: str | None = None  # falls back to [auth].model / SDK default
 
 
 class PRConfig(BaseModel):
@@ -129,6 +151,7 @@ class SmithicConfig(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     rubric: RubricConfig = Field(default_factory=RubricConfig)
+    critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
     pr: PRConfig = Field(default_factory=PRConfig)
 
 

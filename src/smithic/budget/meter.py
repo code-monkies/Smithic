@@ -7,15 +7,17 @@ we keep an out-of-band ledger here for two reasons:
 2. The SDK's ceiling is per-call; we need a per-run ceiling that survives multiple
    subagent invocations.
 
-In v0.1 the meter records everything but the only ``check`` callsite is between
-stages — there is no mid-call interrupt. v0.2 will tighten this.
-
 The USD ceiling is treated as a hard limit only when ``enforce_usd`` is set
 (which the orchestrator sets to ``True`` only for direct API auth — see
 ``smithic.auth.is_metered``). For subscription / Bedrock / Vertex / Foundry the
 SDK does not aggregate per-call USD, so the figure would always be 0 and
 enforcement would be a no-op or, worse, misleading. The token ceiling is hard
 in every mode.
+
+v0.2 tightens enforcement: ``would_exceed`` lets stages do a pre-call estimate
+based on prior stages' average cost so we catch breaches at the next checkpoint
+rather than mid-call. ``snapshot`` returns a frozen view the orchestrator can
+log between substages.
 """
 
 from __future__ import annotations
@@ -30,6 +32,16 @@ from smithic.memory.db import Memory
 class BudgetCeiling:
     max_usd: float
     max_tokens: int
+
+
+@dataclass(frozen=True)
+class MeterSnapshot:
+    """Frozen view of meter state — safe to log."""
+
+    spent_usd: float
+    tokens_used: int
+    remaining_usd: float
+    enforce_usd: bool
 
 
 class Meter:
@@ -79,6 +91,25 @@ class Meter:
         if not self.enforce_usd:
             return float("inf")
         return max(0.0, self.ceiling.max_usd - self.spent())
+
+    def would_exceed(self, estimated_usd: float) -> bool:
+        """Pre-call check: would adding ``estimated_usd`` blow the ceiling?
+
+        Always ``False`` in unmetered modes. Use this to skip a substage cleanly
+        before incurring the cost, instead of catching a breach after the fact.
+        """
+        if not self.enforce_usd:
+            return False
+        return (self.spent() + max(0.0, estimated_usd)) > self.ceiling.max_usd
+
+    def snapshot(self) -> MeterSnapshot:
+        """Frozen view for logging between stages."""
+        return MeterSnapshot(
+            spent_usd=self.spent(),
+            tokens_used=self.tokens_used(),
+            remaining_usd=self.remaining_usd(),
+            enforce_usd=self.enforce_usd,
+        )
 
     def check(self) -> None:
         """Raise ``BudgetExceeded`` if a hard ceiling is breached.

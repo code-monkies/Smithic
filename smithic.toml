@@ -1,0 +1,67 @@
+# Smithic dogfooding itself — config that runs Smithic against the Smithic repo.
+#
+# Usage from the repo root:
+#
+#   smithic run --config ./smithic.toml --research-only --max-usd 0.50
+#   smithic run --config ./smithic.toml --max-usd 5.00
+#   smithic run --config ./smithic.toml --runs 3 --max-usd 8.00
+#
+# The runtime artifacts (.smithic/, .smithic-worktrees/) are gitignored.
+# The mission file at ./MISSION.md is the document this config grounds proposals against.
+
+[target]
+path = "."
+mission = "./MISSION.md"
+
+[swarm]
+parallel_runs = 1
+worktree_root = ".smithic-worktrees"
+
+[budget]
+# Advisory under subscription mode (the SDK still reports a non-zero figure
+# in practice — see README "When something goes wrong"). The token ceiling
+# is the actual hard limit. Bumped past the default to give the implement
+# stage room when the chosen feature touches multiple modules.
+max_usd_per_run = 5.00
+max_tokens_per_run = 3_000_000
+
+[auth]
+# `auto` resolves at runtime: if ANTHROPIC_API_KEY is set, api mode; else
+# the logged-in `claude` CLI session (Pro/Max). To force one, override on
+# the CLI: `smithic run --auth-mode subscription` or set `mode = "api"` here.
+mode = "auto"
+
+[research]
+# Smithic's mission is "build the autonomous PR factory for any repo," so
+# the relevant signal lives where developers complain about agent SDKs,
+# Claude Code automation, multi-agent failure modes, and CI/PR review tools.
+# `web` falls back to mcp-server-fetch if TAVILY_API_KEY isn't set.
+# `producthunt` is silently skipped without PRODUCTHUNT_TOKEN.
+sources = ["web", "reddit", "hn"]
+cache_ttl_hours = 72
+max_candidates = 5
+query_budget_usd = 0.10
+
+[rubric]
+# Stick with the bundled default rubric for now. A devtools-flavored
+# override (heavier weight on competitive_gap and effort_fit, lighter on
+# market_demand since adoption signal is qualitative for early infra) is
+# a natural follow-up — would live at .smithic/rubric.yaml.
+# path = ".smithic/rubric.yaml"
+
+[critique]
+# Keep the safety net on. Smithic's own implement stage modifies the same
+# orchestration code that runs the critique; a self-modification mistake
+# should get caught before opening a PR.
+enable = true
+max_revise_loops = 1
+
+[pr]
+# Smithic's PR template includes the research rationale + critic verdict;
+# pass-with-concerns opens the PR as a draft with the smithic-needs-review
+# label automatically. Don't pre-assign other labels — code-monkies/Smithic
+# uses labels to gate CI workflows that shouldn't fire on autonomous PRs
+# until a human flips them.
+draft_on_critique_concerns = true
+labels = []
+base_branch = "main"

@@ -30,6 +30,12 @@ AuthMode = Literal["auto", "api", "subscription", "bedrock", "vertex", "foundry"
 # those providers don't support, otherwise calls fail.
 _DISABLE_BETAS_ENV = {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"}
 
+# On Windows, child Python processes inherit cp1252 as the default I/O encoding.
+# Any MCP server stdout containing non-mappable bytes (emoji, smart quotes,
+# UTF-8) crashes the SDK's subprocess reader with UnicodeDecodeError. Forcing
+# utf-8 across the chain prevents that and is harmless on Linux/macOS.
+_FORCE_UTF8_ENV = {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+
 
 class AuthError(RuntimeError):
     """Raised when auth is misconfigured or unreachable."""
@@ -61,18 +67,19 @@ def detect_mode(env: dict[str, str] | None = None) -> AuthMode:
 def env_for_mode(mode: AuthMode) -> dict[str, str]:
     """Return env-var overrides to push into the SDK call for a given mode."""
     if mode == "api":
-        # Nothing to inject — the SDK reads ANTHROPIC_API_KEY itself.
-        return {}
+        # Nothing auth-related to inject (the SDK reads ANTHROPIC_API_KEY
+        # itself), but utf-8 still applies.
+        return {**_FORCE_UTF8_ENV}
     if mode == "subscription":
         # If ANTHROPIC_API_KEY is set in the parent env it would override
         # subscription auth; clear it for this call to honor user intent.
-        return {"ANTHROPIC_API_KEY": ""}
+        return {"ANTHROPIC_API_KEY": "", **_FORCE_UTF8_ENV}
     if mode == "bedrock":
-        return {"CLAUDE_CODE_USE_BEDROCK": "1", **_DISABLE_BETAS_ENV}
+        return {"CLAUDE_CODE_USE_BEDROCK": "1", **_DISABLE_BETAS_ENV, **_FORCE_UTF8_ENV}
     if mode == "vertex":
-        return {"CLAUDE_CODE_USE_VERTEX": "1", **_DISABLE_BETAS_ENV}
+        return {"CLAUDE_CODE_USE_VERTEX": "1", **_DISABLE_BETAS_ENV, **_FORCE_UTF8_ENV}
     if mode == "foundry":
-        return {"CLAUDE_CODE_USE_FOUNDRY": "1", **_DISABLE_BETAS_ENV}
+        return {"CLAUDE_CODE_USE_FOUNDRY": "1", **_DISABLE_BETAS_ENV, **_FORCE_UTF8_ENV}
     raise ValueError(f"unknown auth mode: {mode!r}")
 
 
